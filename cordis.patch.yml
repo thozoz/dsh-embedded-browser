@@ -16,3 +16,4 @@
       name: 'dsh-embedded-browser'
       config:
         lazyTools: false
+        idleShutdownMinutes: 0

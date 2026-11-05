@@ -45,6 +45,13 @@ Verification: upstream 22 lazy-gate + 66 Chromium smoke checks; additional test/
 
 Limits: browser-reserved shortcuts may be intercepted by the outer browser, so use +/×/address controls in that case. A full native context menu is not streamed; right-click on a link is a direct new-tab action. Cross-origin iframe link hit-testing and popups with no provable opener are not automatically assigned. Tabs/page state are not restored across host restart; cookies remain persistent (existing behavior). Real email registration and third-party CAPTCHA flows are not used as regression tests.
 
+## Diagnostics and navigation/lag fixes
+
+- Rotating privacy-safe JSONL diagnostics log added at `$DSH_HOME/embedded-browser/logs/diagnostics.jsonl` (records CDP command latencies/timeouts, pending queue depth, document response status/TTFB, renderer crashes, host memory/event-loop lag, and panel long-task/error counts; strips page content, inputs, cookies, and query strings).
+- Prevented `status()` and `ScreencastHub.pushState()` from blocking on `inSession` or piling up 30s `Runtime.evaluate` calls while a tab is mid-navigation (`record.page.navigating` skips `Runtime.evaluate` and uses a 1.2s timeout fallback).
+- Extended default navigation budget (`waitMs`) from 30s to 60s (with 75s tool timeout) for slow authenticated backends (e.g., DocDrift `/app/home` taking ~45s TTFB when logged in), and abort stuck loads with `Page.stopLoading` on timeout while preserving existing tabs and selection.
+- Fixed `Xvfb` child process cleanup on both `stop()` and `chrome.on('exit')`.
+
 ## Use
 
 Ask the AI to open a URL using browser_embedded_navigate. Right sidebar → Browser/Embedded browser. Click directly on its page to use mouse/keyboard. AI uses browser_embedded_ask_human for logins or other human-only steps.

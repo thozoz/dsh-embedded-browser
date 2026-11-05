@@ -7,7 +7,10 @@ import { BrowserManager, sleep } from '../lib/browser.js'
 import { ScreencastHub } from '../lib/screencast.js'
 import { HumanBroker } from '../lib/human.js'
 const root=await mkdtemp(join(tmpdir(),'dsh-tabs-'))
-const server=createServer((req,res)=>res.end(`<title>${req.url}</title><input value="kept"><a target="_blank" href="/welcome">Login link</a>`))
+const server=createServer((req,res)=>{
+  if(req.url==='/slow')return setTimeout(()=>res.end('<title>/slow</title>'),1500)
+  res.end(`<title>${req.url}</title><input value="kept"><a target="_blank" href="/welcome">Login link</a>`)
+})
 await new Promise(r=>server.listen(0,'127.0.0.1',r))
 const base=`http://127.0.0.1:${server.address().port}`
 const manager=new BrowserManager({config:{profileDir:join(root,'profile'),mode:'headless',viewport:'1000x700'}})
@@ -48,6 +51,13 @@ try {
   } finally { await hub.close() }
   await manager.closeTab('a',signup)
   assert.equal((await manager.listTabs('a')).length,4)
+  const slowNav=manager.newTab('a',base+'/slow')
+  await sleep(150)
+  const t0=Date.now()
+  const midStatus=await manager.status('a')
+  assert.ok(Date.now()-t0<400,'status does not block while a tab is navigating')
+  assert.equal(midStatus.session.tabs.length,5,'all tabs remain visible during slow navigation')
+  await slowNav
   await manager.closeSession('a')
   assert.equal((await manager.listTabs('a')).length,0)
   assert.equal((await manager.listTabs('b')).length,1)

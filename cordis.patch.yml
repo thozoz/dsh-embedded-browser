@@ -14,3 +14,5 @@
 - insert:
     - id: embedded-browser
       name: 'dsh-embedded-browser'
+      config:
+        lazyTools: false

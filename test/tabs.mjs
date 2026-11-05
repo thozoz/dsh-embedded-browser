@@ -4,6 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BrowserManager, sleep } from '../lib/browser.js'
+import { ScreencastHub } from '../lib/screencast.js'
+import { HumanBroker } from '../lib/human.js'
 const root=await mkdtemp(join(tmpdir(),'dsh-tabs-'))
 const server=createServer((req,res)=>res.end(`<title>${req.url}</title><input value="kept"><a target="_blank" href="/welcome">Login link</a>`))
 await new Promise(r=>server.listen(0,'127.0.0.1',r))
@@ -29,8 +31,23 @@ try {
   assert.equal(tabs.length,3,'popup adopted via opener')
   assert.ok(tabs.find(t=>t.selected).url.endsWith('/welcome'))
   assert.equal((await manager.listTabs('b')).length,1)
+  const hub=new ScreencastHub({manager,human:new HumanBroker({}),viewport:{width:1000,height:700},quality:50,maxWidth:1000,maxHeight:700})
+  const messages=[]
+  const connection={sessionId:'a',sendJson:m=>messages.push(m),sendBinary:()=>{}}
+  try {
+    await hub.handleMessage(connection,{type:'input',kind:'text',text:'WRONG',tabId:signup})
+    assert.equal(messages.at(-1).type,'error','stale panel input refused')
+    await manager.selectTab('a',mail)
+    const point=await manager.evaluate('a',`(()=>{const r=document.querySelector('a').getBoundingClientRect();return {x:r.x+2,y:r.y+2}})()`)
+    await hub.handleMessage(connection,{type:'open-link',tabId:mail,...point})
+    assert.equal((await manager.listTabs('a')).length,4,'context link opens owned tab')
+    await manager.selectTab('a',mail)
+    await hub.handleMessage(connection,{type:'input',kind:'mouse',event:'up',button:'left',modifiers:['ctrl'],tabId:mail,...point})
+    for(let i=0;i<30;i++){if((await manager.listTabs('a')).length===5)break;await sleep(100)}
+    assert.equal((await manager.listTabs('a')).length,5,'Ctrl-click popup adopted')
+  } finally { await hub.close() }
   await manager.closeTab('a',signup)
-  assert.equal((await manager.listTabs('a')).length,2)
+  assert.equal((await manager.listTabs('a')).length,4)
   await manager.closeSession('a')
   assert.equal((await manager.listTabs('a')).length,0)
   assert.equal((await manager.listTabs('b')).length,1)

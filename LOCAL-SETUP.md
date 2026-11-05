@@ -29,6 +29,22 @@ Debian Chromium 156.0.8078.79, Xvfb, xauth, Liberation fonts and Noto emoji font
 - Plugin inventory title/description and loaded custom icon verified in the actual GUI.
 - Relevant system journal checked; this deployment does not emit plugin runtime console lines into that journal during hot activation, so no positive log-only claim is made. Actual health/tools/UI provide runtime evidence.
 
+## Multi-tab update
+
+Rollback baseline: 1607f17. Feature commits are separate from this baseline.
+
+- One conversation now owns multiple Chromium page targets. UI and AI use the same selected tab, rather than separate hidden selections.
+- browser_embedded_tabs lists/new/selects/closes owned targets. Page tools accept optional tabId, selecting it before acting. browser_embedded_navigate newTab:true preserves old tabs.
+- Browser strip has titles, +, individual ×, editable address input (Enter), and panel-focused Ctrl/Cmd+L/T/W.
+- Right-click on an HTML link opens it in a new selected tab directly (not a full native context menu). Ctrl/Cmd-click and middle-click on HTML links also open a new selected tab.
+- Chromium popups with a known opener target are adopted into that opener's conversation and selected. Unrelated/unowned targets are intentionally never guessed into a conversation.
+- Stream switching follows the selected target; stale panel input carrying a previous tabId is rejected.
+- Last-tab close leaves the panel empty; legacy browser_embedded_close still closes all tabs in the conversation.
+
+Verification: upstream 22 lazy-gate + 66 Chromium smoke checks; additional test/tabs.mjs covers form retention, new tabs, selection, opener popups, cross-conversation rejection, context/Ctrl links, stale input, cleanup. test/live-tabs.mjs verifies the actual authenticated Harness UI +, address editing/Enter, select, ×, Ctrl+T/W/L and renderer exceptions.
+
+Limits: browser-reserved shortcuts may be intercepted by the outer browser, so use +/×/address controls in that case. A full native context menu is not streamed; right-click on a link is a direct new-tab action. Cross-origin iframe link hit-testing and popups with no provable opener are not automatically assigned. Tabs/page state are not restored across host restart; cookies remain persistent (existing behavior). Real email registration and third-party CAPTCHA flows are not used as regression tests.
+
 ## Use
 
 Ask the AI to open a URL using browser_embedded_navigate. Right sidebar → Browser/Embedded browser. Click directly on its page to use mouse/keyboard. AI uses browser_embedded_ask_human for logins or other human-only steps.

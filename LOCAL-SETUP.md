@@ -51,7 +51,7 @@ Limits: browser-reserved shortcuts may be intercepted by the outer browser, so u
 - Prevented `status()` and `ScreencastHub.pushState()` from blocking on `inSession` or piling up 30s `Runtime.evaluate` calls while a tab is mid-navigation (`record.page.navigating` skips `Runtime.evaluate` and uses a 1.2s timeout fallback).
 - Extended default navigation budget (`waitMs`) from 30s to 60s (with 75s tool timeout) for slow authenticated backends (e.g., DocDrift `/app/home` taking ~45s TTFB when logged in), and abort stuck loads with `Page.stopLoading` on timeout while preserving existing tabs and selection.
 - Fixed `Xvfb` child process cleanup on both `stop()` and `chrome.on('exit')`.
-- Disabled automatic 10-minute `idleShutdownMinutes` reaping (`default(0)`) and prevented any configured idle timer from reaping while a panel is watching (`watchedSessionId !== undefined`).
+- Set default `idleShutdownMinutes` to 60 minutes (1 hour), added `keepAliveMinutes` override parameter to `browser_embedded_tabs` (`0` = infinite), and prevented any idle reaping while a panel is watching, a human request is pending, or any tab has unsaved dirty form inputs (`hasDirtyForms()`).
 
 ## Use
 

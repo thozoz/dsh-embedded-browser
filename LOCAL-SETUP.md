@@ -60,11 +60,11 @@ Limits: browser-reserved shortcuts may be intercepted by the outer browser, so u
   2. Dirty form (`hasDirtyForms()`) successfully prevents 1-minute idle shutdown. Once the form is cleared, browser stops after the next cycle.
   3. Watched panel (`watchedSessionId !== undefined`) prevents idle shutdown.
   4. Pending human takeover request (`hasPendingHuman()`) prevents idle shutdown.
-  5. `keepAliveMinutes = 0` override keeps the browser running indefinitely.
+  5. With `keepAliveMinutes = 0`, the browser remained running beyond the configured one-minute timeout (observed for about 70 seconds, not indefinitely).
 - `test/stress-suite.mjs` passed:
   1. 3-tier chained popups via both `<a target="_blank">` and `window.open` are automatically adopted into the owning conversation's tab strip.
   2. Strict session boundary: unrelated sessions are rejected from viewing, selecting, or closing other sessions' tabs.
-  3. 16 tabs rapidly created, evaluated concurrently, and closed without queue deadlock.
+  3. 16 tabs rapidly created, switched/evaluated sequentially, and partially closed without queue deadlock; this does not demonstrate arbitrary concurrent action safety.
   4. Clean teardown with zero orphaned `Xvfb` processes.
 - Live Web UI verified: `test/live-tabs.mjs` executed against the live authenticated host port, confirming tab addition, address input & Enter navigation, selection, individual closing, and panel Ctrl+T/W/L.
 

@@ -2,7 +2,9 @@
 
 [English](README.md) | **简体中文**
 
-一个住在 DSH 宿主里的浏览器：**每个 DSH 会话都拥有它自己的标签页**，AI 用 `browser_embedded_*` 工具驱动自己那一页，而你在 DSH Web UI **右侧栏里按需弹出的 tab** 中看**同一个标签页**，随时可以接手。
+一个住在 DSH 宿主里的浏览器：**每个 DSH 会话都拥有自己的一组标签页**，AI 用 `browser_embedded_*` 工具驱动自己那一页，而你在 DSH Web UI **右侧栏里按需弹出的 tab** 中看**同一个标签页**，随时可以接手。
+
+> **社区 fork：** [thozoz/dsh-embedded-browser](https://github.com/thozoz/dsh-embedded-browser)，基于 [imroc 上游](https://github.com/imroc/dsh-embedded-browser)。新增多标签页、地址编辑、智能空闲保护和图形资源释放。保留上游版本号，不代表新的 npm 发布。本地验证版本为 DSH `0.2.1-alpha.3`；继承的最低版本范围不等于所有版本都已验证。
 
 > **0.3.0 起更名。** 0.2.0 及以前这个插件叫 `dsh-browser-panel`：工具是 `browser_panel_*`，路由在 `/api/dsh-browser-panel/*`，profile 在 `$DSH_HOME/browser-panel/profile`。包名、仓库名和这些名字一起改了，现在工具前缀与包名一致。想保留 0.2.0 装出来的登录态，把 `profileDir` 指回旧目录即可。
 
@@ -16,22 +18,16 @@
 
 ## 能力
 
-**一个浏览器、每个会话一个标签页、两个控制面**：AI 在自己那一页上走 CDP，人类在右侧栏那个镜像它的 tab 里看同一页、操作同一页；人类登录出来的会话，正是 AI 继续使用的会话——而且因为所有会话共用一个 profile，其余会话也一并处于登录态。
+**一个浏览器、每个会话多个标签页、两个控制面**：AI 在自己那一页上走 CDP，人类在右侧栏那个镜像它的 tab 里看同一页、操作同一页；人类登录出来的会话，正是 AI 继续使用的会话——而且因为所有会话共用一个 profile，其余会话也一并处于登录态。
 
 ### 工具（懒注册）
 
-这 12 个 `browser_embedded_*` 工具**不会在插件加载时就注册**。工具 schema 每一轮请求都要计费，所以默认它们不进工具列表，直到有证据表明模型确实在做浏览器任务：
-
-- 成功调用 `skill` 工具且技能名为 `browser-use`；
-- 人类在会话里发 `/browser-use` 手势；
-- 会话历史日志里存在过一次成功调用——第三条路正是插件重载后重新开闸的依据。
-
-也就是说：**没有那个技能，就没有这批工具。** 装插件的同时请一并装 `browser-use` 技能（见[安装](#安装)）——它是浏览器任务的入口技能（同时覆盖 BrowserSkill 通道），调用它就是发布这批工具的动作。开闸是宿主级的、且**只在本进程内**有效：一旦打开，本宿主进程内**所有会话**都能看到这批工具（`ctx.tools.register` 写进的是同一个宿主级注册表），包括之后新建的会话——所以一个会话看见工具、另一个会话没读过技能，是完全正常的，不是插件没生效。 **重启 dsh-web 会开一个新进程、门闸也跟着回到关闭状态**：在某个会话再次调用技能之前工具都不在，因为重载回放只看得到"当下活着"的会话（详见 `references/PITFALLS.md` #24）。把 `lazyTools` 设为 `false` 则回到"加载即注册"。
+本 fork 提供 **13 个工具**。随包组合设置 `lazyTools: false`，加载即可使用，不需要 `browser-use` 技能。显式设置 `lazyTools: true` 后，可通过成功调用 `browser-use` 技能、`/browser-use` 手势或历史成功调用回放开启宿主级门闸；有效期为当前进程。
 
 | 能力 | 工具 | 说明 |
 |---|---|---|
 | 查状态 | `browser_embedded_status` | 是否在运行、**本会话标签页**的 URL/标题、有没有待人类处理的动作 |
-| 打开网址 | `browser_embedded_navigate` | 首次调用即启动浏览器；`newTab` 用新标签页替换本会话当前页面 |
+| 打开网址 | `browser_embedded_navigate` | 首次调用即启动浏览器；`newTab: true` 打开并选择新标签页，保留已有页面 |
 | 读页面 | `browser_embedded_snapshot` | 标题、URL、带编号的可交互元素清单、可见正文 |
 | 点击 | `browser_embedded_click` | 按元素编号或可见文字；派发真实输入事件 |
 | 填字段 | `browser_embedded_type` | 兼容 React/Vue 受控输入；`submit` 顺带回车 |
@@ -41,7 +37,8 @@
 | **页面求值** | `browser_embedded_eval` | 在本会话页面里跑一段 JS，结果以有界 JSON 返回（切主题、读计算样式、断言状态） |
 | 看渲染 | `browser_embedded_screenshot` | PNG 以图片附件形式返回给模型 |
 | **请人帮忙** | `browser_embedded_ask_human` | 带你的说明把**本会话**的浏览器标签页调出来，并**等待**人类点「我已完成」 |
-| 关标签页 | `browser_embedded_close` | 关闭本会话的标签页；profile（含所有登录态）保留 |
+| 管理标签页 | `browser_embedded_tabs` | `list`、`new`、`select`、`close`；可传 `keepAliveMinutes` |
+| 关闭会话全部标签页 | `browser_embedded_close` | 关闭本会话所有标签页；保留 profile 和登录态 |
 
 `browser_embedded_emulate` 是**每个标签页各自生效**的临时状态，改它不动配置、不重启、也不影响别的会话；`reset: true` 回到 `viewport` 配置的那个默认视口。`device` 预设的名字、尺寸、DPR 与 UA 与 BrowserSkill 通道的 `bsk emulate --device` **逐字段对齐**，所以在两条通道上「同一台设备」看到的是同一个页面。自检一个页面在手机上长什么样、在深色下长什么样，用这两个工具就够了：
 
@@ -70,7 +67,7 @@ flowchart LR
   AI["AI 回合<br/>（browser_embedded_* 工具）"] -->|"CDP · 本会话的标签页"| B["Chrome<br/>（持久 profile）"]
   H["你，在 DSH Web UI 里"] -->|"鼠标 · 键盘 · 输入法"| P["右侧栏 tab<br/>（client 半）"]
   P -->|"WebSocket /api/dsh-embedded-browser/stream?session=…"| S["宿主半<br/>（screencast + 输入回灌）"]
-  P -->|"GET /api/dsh-embedded-browser/sessions（2 秒轮询）"| S
+  P -->|"GET /api/dsh-embedded-browser/sessions（可见 5 秒 / 隐藏 20 秒）"| S
   S -->|"Page.startScreencast（屏幕上的那一页）"| B
   S -->|"Page.captureScreenshot（约 7fps，其余标签页）"| B
   S -->|"Input.dispatch*（该 tab 自己的标签页）"| B
@@ -80,11 +77,11 @@ flowchart LR
 
 - 宿主半为每个 DSH 宿主进程启动一个 Chrome。`mode: auto` 下若有 Xvfb 就在**私有 Xvfb 上跑 headed**（指纹比 headless 好），否则自动退回 `--headless=new`。
 - 会话的标签页是**懒创建**的：该会话第一次调用 `browser_embedded_*` 时，或人类在该会话的右侧栏 tab 里点打开按钮时，才开；会话被销毁、AI 调用 `browser_embedded_close`、或人类点「结束并清理」时关闭。会话之间隔离的是**页面状态**，不是身份：它们共用 profile，所以登录一次到处可用。
-- 每个标签页在创建时**只激活一次**。一个从未被激活过的 Chrome target 会在余生里静默丢弃每一次注入的输入事件，而激活一次即可永久修复；此后即使标签页在后台，注入的输入也照样生效——所以 AI 永远不会抢你的前台。
-- Chrome 只为**当前活动标签页**推流。你正在看的那个右侧栏 tab 会发 `focus`，由它独占真正的 `Page.startScreencast`；其余已连接的会话由轮询的 `Page.captureScreenshot` 供帧（目标约 7fps；当别的标签页占着 screencast 时，它的第一帧可能很慢，要几秒）。新打开的面板总会先补种一帧，因为静态页面自己不会产生任何帧。
+- 每个标签页在创建时**只激活一次**。一个从未被激活过的 Chrome target 会在余生里静默丢弃每一次注入的输入事件，而激活一次即可永久修复；此后即使标签页在后台，注入的输入也照样生效——同一会话内的选中标签页由人和 AI 共享。
+- Chrome 只为**当前活动标签页**推流。你正在看的那个右侧栏 tab 会发 `focus`，由它独占真正的 `Page.startScreencast`；其余正在观看的面板由轮询的 `Page.captureScreenshot` 供帧（目标约 7fps；当别的标签页占着 screencast 时，它的第一帧可能很慢，要几秒）。新打开的面板总会先补种一帧，因为静态页面自己不会产生任何帧。
 - tab 正文在**不可见时也是挂着的**（栏折叠、或停在别的 tab 上），所以组件用可见性而不是挂载与否来开流：隐藏的 tab 不持有 WebSocket、也不发 `focus`，因此绝不会从正在观看的人手里抢走浏览器前台。
 - 工具不带 session 参数：每个 handler 从自己的执行上下文（`exec.agent.id`）读会话 id，所以工具名与参数保持简单，会话之间也永远不可能互相操作对方的标签页。没有归属会话的调用直接报错。
-- 工具由入口技能而非插件加载来发布（见上）；插件注入的系统提示词 section 会主动把模型指到这个技能上，这也是"被门闸挡住的一套工具"仍然可被发现的原因。
+- 本 fork 默认加载即注册工具；显式配置后仍可使用上游懒加载门闸。
 - 面板由宿主 webserver 提供，与 Web UI **同源、同一套会话认证**（`connection.requestRejection`）。属于某个会话的路由带上它的 id——`GET /api/dsh-embedded-browser/state?session=…`、`POST /open|/close`（session 在 body 里）、以及 `/stream?session=…` 这个 WebSocket upgrade；`GET /sessions` 与 `GET /health` 描述整个宿主，`POST /human-done` 按 request id 结算。不需要额外端口、额外 token 或隧道。
 - 人类接管是按会话的：两个会话可以同时等人，请求只会送到它自己那个会话的右侧栏 tab。
 - 画面以 JPEG 走一条 WebSocket，输入以小 JSON 消息回传；连接跟不上时**丢帧而不是排队**。
@@ -102,11 +99,8 @@ flowchart LR
 版本 **0.3.0**。这个版本改了包名，所以 0.2.0 装出来的每一个名字都会被打破：`dsh-browser-panel` → `dsh-embedded-browser`、`browser_panel_*` → `browser_embedded_*`、`/api/dsh-browser-panel/*` → `/api/dsh-embedded-browser/*`、`$DSH_HOME/browser-panel/profile` → `$DSH_HOME/embedded-browser/profile`。0.2.0 是旧名下的最后一个版本；0.2.0 自己的那次破坏（每会话标签页、不再有共享页面模式）依然有效。
 
 ```sh
-# npm
-dsh plugin --profile web add dsh-embedded-browser
-
-# 直接从 GitHub
-dsh plugin --profile web add github:imroc/dsh-embedded-browser
+# 安装本 fork（npm 包仍指向上游）
+dsh plugin --profile web add github:thozoz/dsh-embedded-browser
 ```
 
 一个插件必须在 profile 里**登记两处**：一处是依赖（代码要落到 profile 自己的 `node_modules` 里），另一处是 `dsh.profile.bundles`（那个负责插入插件行的 patch 才会被应用）。`dsh plugin … add` 两处都会做，因为这个包声明了 `dsh.bundle`；手工只加一条依赖是装不上的。
@@ -119,18 +113,13 @@ dsh plugin --profile web add github:imroc/dsh-embedded-browser
 systemctl --user restart dsh-web      # 或你启动 `dsh web` 的方式
 ```
 
-### 建议同时安装 `browser-use` 技能
+### 可选的工具懒加载门闸
 
-这 12 个工具被 `browser-use` 技能挡在门后，而这个技能**不在本包里**——它属于你的 profile 加载的技能。没有它（也没有 `/browser-use` 手势）门闸永远打不开，任何 `browser_embedded_*` 工具都不会被发布，模型只会告诉你这些工具不存在：
-
-- 装一个全局的 **`browser-use`** 技能；或者
-- 设 `lazyTools: false` 改成加载即注册，代价是每一轮请求都要带上这些 schema。
-
-技能名硬编码在 `lib/lazy.js` 的 `SKILL_NAME` 里。你那边改了技能名，这里也要同步改。
+本组合默认立即注册工具。如需延迟加载 schema，请显式设置 `lazyTools: true`，并另行安装 `browser-use` 技能；它不随本包分发。技能名位于 `lib/lazy.js` 的 `SKILL_NAME`。
 
 ## 验证
 
-1. 工具被门闸挡着，所以第一步先开闸：让 AI 用 `browser-use` 技能，或直接在会话里发 `/browser-use`。此后 12 个 `browser_embedded_*` 工具对本宿主进程里的**所有**会话（含新建会话）可见。
+1. 确认 `browser_embedded_tabs` 可用。仅在显式启用 `lazyTools: true` 时，先用单独安装的 `browser-use` 技能开闸。
 2. 让 AI 打开一个网址：
 
    ```
@@ -156,7 +145,8 @@ systemctl --user restart dsh-web      # 或你启动 `dsh web` 的方式
   config:
     mode: headless            # auto | headed | headless
     viewport: 1280x800
-    idleShutdownMinutes: 30
+    idleShutdownMinutes: 60
+    lazyTools: false
 ```
 
 | 字段 | 默认 | 含义 |
@@ -177,9 +167,9 @@ systemctl --user restart dsh-web      # 或你启动 `dsh web` 的方式
 | `screencastMaxWidth` | `1440` | 推流画面的最大宽度。 |
 | `pollFrameMs` | `140` | 拿不到前台 screencast 的面板用轮询供帧的间隔（约 7fps）；小于 `60` 会被夹到 `60`。 |
 | `askHumanTimeoutSeconds` | `600` | `browser_embedded_ask_human` 的默认等待预算。 |
-| `idleShutdownMinutes` | `10` | 空闲多久后关闭浏览器（连同所有会话的标签页）；`0` 表示从不关。回收是无损的：标签页会按最后的 URL 重开，profile 里的登录态也都还在。 |
+| `idleShutdownMinutes` | `60` | 宿主级空闲超时。正在观看、有人工请求或检测到未保存表单时推迟关闭；`0` 禁用。关闭会丢失标签页/表单状态，但保留登录态。 |
 | `autoStart` | `false` | 随宿主启动浏览器，而不是等第一次调用。 |
-| `lazyTools` | `true` | 只在 `browser-use` 技能被调用之后才发布这 12 个工具（宿主级开闸，一次开对所有会话生效）；`false` 改成加载即注册。 |
+| `lazyTools` | Config 默认 `true`；**随包组合为 `false`** | 可选的宿主级技能门闸；本 fork 默认关闭。 |
 | `startTimeoutMs` | `20000` | 启动后等待 DevTools 端点的上限。 |
 
 ## 安全须知
@@ -197,6 +187,27 @@ dsh plugin --profile web remove dsh-embedded-browser   # 或直接从 cordis.pat
 ```
 
 然后重启 Web UI。profile 目录会保留，所以重装后登录态还在；想彻底忘掉就删 `$DSH_HOME/embedded-browser/profile`。
+
+## 多标签页与空闲保护
+
+面板提供标题标签栏、**+**、单独 **×** 和可编辑地址栏（Enter 打开）。面板聚焦时支持 Ctrl/Cmd+L/T/W，但外层浏览器可能拦截快捷键。右键 HTML 链接直接在新标签页打开，不是原生右键菜单；普通链接支持 Ctrl/Cmd 单击和中键。
+
+```js
+browser_embedded_navigate({ url: "https://example.com", newTab: true })
+browser_embedded_tabs({ action: "list" })
+browser_embedded_tabs({ action: "select", tabId: "<id from list>" })
+browser_embedded_snapshot({ tabId: "<id from list>" })
+browser_embedded_tabs({ action: "list", keepAliveMinutes: 0 }) // 禁止自动回收
+browser_embedded_tabs({ action: "list", keepAliveMinutes: 60 }) // 恢复一小时超时
+```
+
+可选 `tabId` 会同时改变 AI 和人类看到的选中标签页。有已知 opener 的弹出页会被接管并选中。关闭最后一页后面板为空。`keepAliveMinutes` 修改的是**整个宿主浏览器的进程内超时**，不是单页或单会话。脏表单检查是启发式，无法保证所有 iframe/自定义编辑器；重要未保存工作请用 `0` 固定。进程重启会丢失页面和临时覆盖值，cookie 保留。
+
+## 诊断与测试
+
+轮转 JSONL 日志位于 `$DSH_HOME/embedded-browser/logs/diagnostics.jsonl`，不会主动记录页面内容、输入文本或 cookie 值。每帧解码后调用 `ImageBitmap.close()`；避免相同尺寸的 canvas 重置；隐藏文档不解码画面。
+
+`npm test` 运行回归测试；`npm run test:full` 增加压力测试和真实一分钟空闲周期。这不是九小时耐久测试，也没有实测完整一小时关机。证据与限制见 [agent 指南](AGENTS.md)、[配置记录](LOCAL-SETUP.md) 和 [内存审计](MEMORY-AUDIT.md)。
 
 ## License
 

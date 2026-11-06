@@ -2,7 +2,9 @@
 
 **English** | [简体中文](README.zh.md)
 
-A browser that lives inside the DSH host: every DSH session gets **its own tab** in it, the AI drives that tab with `browser_embedded_*` tools, and you watch — or take over — the very same tab in a **right-sidebar tab that opens on demand** in the DSH Web UI.
+A browser that lives inside the DSH host: every DSH session gets **its own tabs** in it, the AI drives that tab with `browser_embedded_*` tools, and you watch — or take over — the very same tab in a **right-sidebar tab that opens on demand** in the DSH Web UI.
+
+> **Community fork:** [thozoz/dsh-embedded-browser](https://github.com/thozoz/dsh-embedded-browser), based on [imroc’s upstream](https://github.com/imroc/dsh-embedded-browser). Includes multiple tabs, editable address bar, smart idle protection and explicit graphics-resource cleanup. The inherited package version is not a new npm release. Tested locally with DSH `0.2.1-alpha.3`; the inherited minimum-version range is not proof of compatibility with every release.
 
 > **Renamed in 0.3.0.** Up to 0.2.0 this plugin was `dsh-browser-panel`: its tools were `browser_panel_*`, its routes lived under `/api/dsh-browser-panel/*`, and its profile under `$DSH_HOME/browser-panel/profile`. The package, the repository and every one of those names changed together, so the tool prefix now matches the package name. Point `profileDir` at the old directory if you want to keep the logins of an 0.2.0 install.
 
@@ -16,22 +18,16 @@ It exists for one stubborn problem: agents run on machines with no display, but 
 
 ## What it does
 
-**One browser, one tab per session, two control planes.** The AI speaks CDP on its own tab; the human sees and drives that same tab from the sidebar tab that mirrors it. The login the human performs is exactly the session the AI keeps using — and because all sessions share one profile, every other session is logged in too.
+**One browser, multiple owned tabs per session, two control planes.** The AI speaks CDP on its own tab; the human sees and drives that same tab from the sidebar tab that mirrors it. The login the human performs is exactly the session the AI keeps using — and because all sessions share one profile, every other session is logged in too.
 
 ### Tools (published lazily)
 
-The twelve `browser_embedded_*` tools are **not registered when the plugin loads.** Their schemas are billed on every request, so by default they stay off the tool list until something proves the model is doing browser work:
-
-- a successful `skill` call naming `browser-use`;
-- the `/browser-use` gesture typed by a human;
-- a past successful invocation found in a session log — this third path is what reopens the gate after a plugin reload.
-
-So: **no skill, no tools.** Install the `browser-use` skill alongside this plugin (see [Install](#install)) — it is the routing skill that also covers the BrowserSkill channel, and calling it is what publishes these twelve. Once open, the gate stays open for the rest of the host process and for **every** session — including sessions created later — because `ctx.tools.register` writes into one host-wide registry. A session that never read the skill seeing the tools is therefore normal, not a plugin that failed to mount. Restarting `dsh-web` starts a fresh process — and a closed gate: the tools are gone again until some session invokes the skill, because the reload replay only sees sessions that are live at that moment (see `references/PITFALLS.md` #24). Set `lazyTools: false` to register the suite at load instead.
+This fork provides **13 tools**. The shipped bundle sets `lazyTools: false`, so they are available immediately; no `browser-use` skill is required. If you explicitly enable `lazyTools: true`, the optional upstream gate publishes them after a successful `browser-use` skill invocation, a `/browser-use` gesture, or replay of a successful invocation. The gate is host-wide for the running process.
 
 | Capability | Tool | Notes |
 |---|---|---|
 | Report state | `browser_embedded_status` | Running? Which URL/title has *this session's* tab? Is a human action pending? |
-| Open a URL | `browser_embedded_navigate` | Starts the browser on first use; `newTab` replaces this session's page with a fresh tab |
+| Open a URL | `browser_embedded_navigate` | Starts the browser on first use; `newTab: true` opens and selects a new tab without discarding existing pages |
 | Read the page | `browser_embedded_snapshot` | Title, URL, numbered inventory of clickable/typable elements, visible text |
 | Click | `browser_embedded_click` | By element number or by visible text; real input events |
 | Fill a field | `browser_embedded_type` | React/Vue-friendly insertion; `submit` presses Enter |
@@ -41,7 +37,8 @@ So: **no skill, no tools.** Install the `browser-use` skill alongside this plugi
 | **Evaluate in the page** | `browser_embedded_eval` | Runs JavaScript in this session's page and returns a bounded JSON projection (switch a theme attribute, read computed styles, assert on state) |
 | Look at the page | `browser_embedded_screenshot` | PNG returned to the model as an image attachment |
 | **Ask the human** | `browser_embedded_ask_human` | Brings up *this session's* browser tab with your instruction and **waits** until they press 我已完成 |
-| Close the tab | `browser_embedded_close` | Closes this session's tab; the profile (and every login) stays |
+| Manage tabs | `browser_embedded_tabs` | `list`, `new`, `select`, `close`; optional `keepAliveMinutes` |
+| Close all session tabs | `browser_embedded_close` | Closes every tab owned by this conversation; the profile stays |
 
 `browser_embedded_emulate` is **per tab** and temporary: it changes no configuration, needs no restart, and cannot touch another session. `reset: true` returns the tab to the `viewport` the config pins. The preset names, dimensions, DPR and user agents are mirrored field for field from the BrowserSkill channel's `bsk emulate --device`, so "the same device" means the same page on either channel. Checking what a page looks like on a phone, and in the dark, is these two calls:
 
@@ -70,7 +67,7 @@ flowchart LR
   AI["AI turn<br/>(browser_embedded_* tools)"] -->|"CDP · this session's tab"| B["Chrome<br/>(persistent profile)"]
   H["You, in the DSH Web UI"] -->|"mouse · keyboard · IME"| P["Right-sidebar tab<br/>(client half)"]
   P -->|"WebSocket /api/dsh-embedded-browser/stream?session=…"| S["Host half<br/>(screencast + input replay)"]
-  P -->|"GET /api/dsh-embedded-browser/sessions (2 s poll)"| S
+  P -->|"GET /api/dsh-embedded-browser/sessions (5 s visible / 20 s hidden)"| S
   S -->|"Page.startScreencast (the visible tab)"| B
   S -->|"Page.captureScreenshot (~7 fps, the rest)"| B
   S -->|"Input.dispatch* (that tab)"| B
@@ -80,11 +77,11 @@ flowchart LR
 
 - The host half launches one Chrome per DSH host process. With `mode: auto` it runs **headed on a private Xvfb** when Xvfb is available (better fingerprint than headless) and falls back to `--headless=new` otherwise.
 - A session's tab is created **lazily** — on that session's first `browser_embedded_*` call, or when the human presses the open button in that session's sidebar tab — and closed when the session is disposed, when the AI calls `browser_embedded_close`, or when the human presses 结束并清理 / Close tab. Sessions are isolated in *page state*, not in identity: they share the profile, so a login performed once is available everywhere.
-- Every tab is **activated once** when it is created. A Chrome target that was never activated silently discards every injected input event for the rest of its life, and one activation repairs it permanently. Afterwards a session's tab accepts input even while it is in the background — so the AI never moves your foreground.
-- Chrome only emits screencast frames for the **active tab**. The sidebar tab you are actually looking at sends `focus` and owns the real `Page.startScreencast`; every other attached session is served by polled `Page.captureScreenshot` frames (~7 fps target; its first frame can be cold — seconds — while another tab owns the screencast). A freshly opened panel always gets a seeded frame, because a static page emits none on its own.
+- Every tab is **activated once** when it is created. A Chrome target that was never activated silently discards every injected input event for the rest of its life, and one activation repairs it permanently. Afterwards a session's tab accepts input even while it is in the background — selection is shared with the human within the conversation.
+- Chrome only emits screencast frames for the **active tab**. The sidebar tab you are actually looking at sends `focus` and owns the real `Page.startScreencast`; other watched panels are served by polled `Page.captureScreenshot` frames (~7 fps target; its first frame can be cold — seconds — while another tab owns the screencast). A freshly opened panel always gets a seeded frame, because a static page emits none on its own.
 - The tab body is **mounted while its tab is invisible** too (a collapsed column, an inactive tab), so the component gates on visibility rather than on mount: a hidden tab holds no WebSocket and asks for no `focus`, and therefore never steals the browser's foreground from whoever is watching.
 - Tools carry no session parameter: every handler reads the session id from its own execution context (`exec.agent.id`), so tool names and parameters stay small and a session can never steer another session's tab. A call with no owning session is an error.
-- The tools are published by the routing skill rather than by plugin load (see above); the plugin's own system-prompt section points the model at that skill, which is what keeps a gated suite discoverable.
+- Tools register immediately in this fork; the optional lazy gate remains available when explicitly configured.
 - The panel is served by the host webserver, on the same origin and behind **the same session authentication as the Web UI itself** (`connection.requestRejection`). The routes that belong to a session carry its id — `GET /api/dsh-embedded-browser/state?session=…`, `POST /open|/close` (session in the body), and the `/stream?session=…` WebSocket upgrade — while `GET /sessions` and `GET /health` describe the whole host, and `POST /human-done` settles a request by id. No extra port, no extra token, no tunnel.
 - Human take-over is per session: two sessions can wait on a human at the same time, and a request is delivered only to the sidebar tab of its own session.
 - Frames travel as JPEG over one WebSocket; input travels back as small JSON messages. Frames are dropped rather than queued when your connection falls behind.
@@ -102,11 +99,8 @@ flowchart LR
 Version **0.3.0**. This release renames the package, so it breaks every name an 0.2.0 install used: `dsh-browser-panel` → `dsh-embedded-browser`, `browser_panel_*` → `browser_embedded_*`, `/api/dsh-browser-panel/*` → `/api/dsh-embedded-browser/*`, `$DSH_HOME/browser-panel/profile` → `$DSH_HOME/embedded-browser/profile`. 0.2.0 is the last release under the old name; 0.2.0's own break (per-session tabs, no shared-page mode) still stands.
 
 ```sh
-# npm
-dsh plugin --profile web add dsh-embedded-browser
-
-# straight from GitHub
-dsh plugin --profile web add github:imroc/dsh-embedded-browser
+# This fork (npm package still refers to upstream)
+dsh plugin --profile web add github:thozoz/dsh-embedded-browser
 ```
 
 A plugin has to end up in the profile **twice**: as a dependency (so its code is in the profile's own `node_modules`) and in `dsh.profile.bundles` (so the patch that inserts the plugin row is actually applied). `dsh plugin … add` does both, because the package declares `dsh.bundle`; a dependency added by hand alone mounts nothing.
@@ -119,18 +113,13 @@ Restart the Web UI afterwards (adding a plugin row is a boot-time composition ch
 systemctl --user restart dsh-web      # or however you run `dsh web`
 ```
 
-### Recommended: the `browser-use` skill
+### Optional lazy tool gate
 
-The twelve tools are gated behind the `browser-use` skill, and that skill does **not** ship inside this package — it belongs to the skills your profile loads. Without it (or a `/browser-use` gesture) the gate never opens and no `browser_embedded_*` tool is ever published; the model will simply report that those tools do not exist:
-
-- install a global **`browser-use`** skill, or
-- set `lazyTools: false` to register the suite at load, and pay its schemas on every request.
-
-The skill name is compiled into `lib/lazy.js` (`SKILL_NAME`). If you rename the skill on your side, rename it there too.
+The bundle registers tools immediately. To opt into deferred schemas, set `lazyTools: true` and supply the `browser-use` skill separately; it does not ship in this package. Its name is `SKILL_NAME` in `lib/lazy.js`.
 
 ## Verify
 
-1. The tools are gated, so open the gate first: ask the AI to use the `browser-use` skill, or type `/browser-use` in the conversation. The twelve `browser_embedded_*` tools are now published for **every** session in this host process, including sessions created later.
+1. Confirm `browser_embedded_tabs` is available. Only when using `lazyTools: true`, open the gate with the separately installed `browser-use` skill first.
 2. Ask for a page:
 
    ```
@@ -156,7 +145,8 @@ Override any field from your own patch layer (`~/.dsh/cordis.patch.yml`, or the 
   config:
     mode: headless            # auto | headed | headless
     viewport: 1280x800
-    idleShutdownMinutes: 30
+    idleShutdownMinutes: 60
+    lazyTools: false
 ```
 
 | Key | Default | Meaning |
@@ -177,9 +167,9 @@ Override any field from your own patch layer (`~/.dsh/cordis.patch.yml`, or the 
 | `screencastMaxWidth` | `1440` | Maximum streamed frame width. |
 | `pollFrameMs` | `140` | Poll interval for panels that cannot own the foreground screencast (~7 fps). Values below `60` are clamped. |
 | `askHumanTimeoutSeconds` | `600` | Default budget of `browser_embedded_ask_human`. |
-| `idleShutdownMinutes` | `10` | Stop the browser — and with it every session's tab — after this much idle time; `0` never stops it. Reaping is lossless: a tab reopens at its last URL, and the profile keeps every login. |
+| `idleShutdownMinutes` | `60` | Host-wide idle timeout. Watched panels, pending human actions and detected dirty forms defer shutdown; `0` disables it. Stopping loses tab/form state, not persistent logins. |
 | `autoStart` | `false` | Start the browser with the host instead of on first use. |
-| `lazyTools` | `true` | Publish the twelve tools only after the `browser-use` skill is invoked (a host-wide gate: one session opens it for all); `false` registers the suite at load. |
+| `lazyTools` | `true` in Config; **`false` in shipped bundle** | Optional host-wide skill gate; disabled by this fork’s bundle. |
 | `startTimeoutMs` | `20000` | How long to wait for the DevTools endpoint after launch. |
 
 ## Security notes
@@ -197,6 +187,27 @@ dsh plugin --profile web remove dsh-embedded-browser   # or delete the row from 
 ```
 
 Then restart the Web UI. The profile directory is left in place, so reinstalling keeps your logins. Delete `$DSH_HOME/embedded-browser/profile` to forget them.
+
+## Multiple tabs and idle protection
+
+The panel has a title tab strip, **+**, individual **×**, and an editable address field (Enter to navigate). Ctrl/Cmd+L/T/W work while the panel is focused, unless intercepted by the outer browser. Right-click on an HTML link opens it directly in a new tab, not a native context menu; Ctrl/Cmd-click and middle-click are supported for ordinary links.
+
+```js
+browser_embedded_navigate({ url: "https://example.com", newTab: true })
+browser_embedded_tabs({ action: "list" })
+browser_embedded_tabs({ action: "select", tabId: "<id from list>" })
+browser_embedded_snapshot({ tabId: "<id from list>" })
+browser_embedded_tabs({ action: "list", keepAliveMinutes: 0 }) // disable automatic reaping
+browser_embedded_tabs({ action: "list", keepAliveMinutes: 60 }) // restore one-hour timeout
+```
+
+Optional `tabId` selects the tab for both AI and human. Known-opener popups are adopted and selected. Closing the last tab leaves an empty panel. `keepAliveMinutes` changes the **whole host browser’s in-process timeout**, not a single tab or conversation. Dirty-form detection is heuristic and cannot guarantee every iframe/custom editor; use `0` for critical unsaved work. Process restart loses open pages and overrides, while cookies persist.
+
+## Diagnostics and tests
+
+Rotating JSONL logs live under `$DSH_HOME/embedded-browser/logs/diagnostics.jsonl`; no page content, typed text or cookie values are intentionally recorded. `ImageBitmap.close()` releases each decoded frame, same-size canvas resets are avoided, and hidden documents skip decoding.
+
+Run `npm test` for regressions or `npm run test:full` for additional stress and real one-minute idle cycles. These are not a nine-hour soak or a measured one-hour shutdown test. See [agent guide](AGENTS.md), [setup notes](LOCAL-SETUP.md) and [memory audit](MEMORY-AUDIT.md) for evidence and limitations.
 
 ## License
 

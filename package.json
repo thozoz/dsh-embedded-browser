@@ -39,7 +39,8 @@
     "@deepseek-ai/schemastery": "3.18.5"
   },
   "scripts": {
-    "test": "node test/lazy-gate.mjs && node test/diagnostics.mjs && node test/smoke.mjs && node test/tabs.mjs"
+    "test": "node test/lazy-gate.mjs && node test/diagnostics.mjs && node test/smoke.mjs && node test/tabs.mjs",
+    "test:full": "node test/lazy-gate.mjs && node test/diagnostics.mjs && node test/smoke.mjs && node test/tabs.mjs && node test/stress-suite.mjs && node test/keepalive-idle.mjs"
   },
   "keywords": [
     "deepseek-harness",

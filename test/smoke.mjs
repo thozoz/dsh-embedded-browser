@@ -455,6 +455,8 @@ try {
   await sleep(700)
   panelA.focus()
   const panelB = await openPanel(SESSION_B)
+  await panelB.focus()
+  await panelA.focus()
   await sleep(700)
 
   check('panel hello carries its session id', panelA.last('hello')?.sessionId === SESSION_A && panelB.last('hello')?.sessionId === SESSION_B)
@@ -464,6 +466,7 @@ try {
   // The panel maps its pointer events through the viewport the host reports, so a
   // resize the human never hears about would aim their clicks at the old geometry.
   await manager.emulate(SESSION_B, { device: 'iphone-14' })
+  await hub.pushState({ force: true })
   await sleep(400)
   check(
     'a resize reaches the panel before the human can click',
@@ -471,8 +474,14 @@ try {
     JSON.stringify(panelB.last('state')?.viewport),
   )
   await manager.emulate(SESSION_B, { reset: true })
+  await hub.pushState({ force: true })
   await sleep(400)
   check('the panel follows the reset too', panelB.last('state')?.viewport?.width === 1280, JSON.stringify(panelB.last('state')?.viewport))
+
+  panelB.send({ type: 'blur' })
+  await sleep(300)
+  check('hidden panel has no screenshot poller', !hub.pollers.has(SESSION_B))
+  await panelB.focus()
 
   // Only the session in front may own the real screencast; the other one is
   // served by polled screenshots (Chrome streams the active tab only, #13).
